@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Instant Call App</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body {
+  font-family: Arial;
+  background: #0f172a;
+  color: white;
+  text-align: center;
+}
+video {
+  width: 45%;
+  margin: 5px;
+  border-radius: 10px;
+}
+button {
+  padding: 10px 20px;
+  margin: 5px;
+  border: none;
+  border-radius: 8px;
+  background: #22c55e;
+  color: white;
+  cursor: pointer;
+}
+#chatBox {
+  height: 150px;
+  overflow-y: auto;
+  border: 1px solid #333;
+  margin: 10px;
+  padding: 5px;
+}
+input {
+  padding: 10px;
+  width: 70%;
+}
+</style>
+</head>
+
+<body>
+
+<h2>🔗 Instant Video Call (No Login)</h2>
+
+<button onclick="createRoom()">Create Call Link</button>
+<p id="link"></p>
+
+<br>
+
+<video id="localVideo" autoplay muted></video>
+<video id="remoteVideo" autoplay></video>
+
+<br>
+
+<button onclick="startCall()">Start Camera</button>
+<button onclick="endCall()">End Call</button>
+
+<h3>💬 Chat</h3>
+<div id="chatBox"></div>
+<input id="msg" placeholder="Type message..." />
+<button onclick="sendMsg()">Send</button>
+
+<script>
+let localStream;
+let peer;
+let dataChannel;
+
+const room = location.hash.substring(1);
+
+function createRoom() {
+  const id = Math.random().toString(36).substring(2, 9);
+  const url = location.href.split('#')[0] + "#" + id;
+  document.getElementById("link").innerText = url;
+}
+
+async function startCall() {
+  localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  document.getElementById("localVideo").srcObject = localStream;
+
+  peer = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+  });
+
+  localStream.getTracks().forEach(track => peer.addTrack(track, localStream));
+
+  peer.ontrack = e => {
+    document.getElementById("remoteVideo").srcObject = e.streams[0];
+  };
+
+  dataChannel = peer.createDataChannel("chat");
+
+  dataChannel.onmessage = e => {
+    addMsg("Friend: " + e.data);
+  };
+
+  const offer = await peer.createOffer();
+  await peer.setLocalDescription(offer);
+
+  localStorage.setItem(room, JSON.stringify(offer));
+
+  listenForAnswer();
+}
+
+function listenForAnswer() {
+  setInterval(async () => {
+    const answer = JSON.parse(localStorage.getItem(room + "-answer"));
+    if (answer && !peer.currentRemoteDescription) {
+      await peer.setRemoteDescription(answer);
+    }
+  }, 1000);
+}
+
+async function joinCall() {
+  peer = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+  });
+
+  localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  document.getElementById("localVideo").srcObject = localStream;
+
+  localStream.getTracks().forEach(track => peer.addTrack(track, localStream));
+
+  peer.ontrack = e => {
+    document.getElementById("remoteVideo").srcObject = e.streams[0];
+  };
+
+  peer.ondatachannel = e => {
+    dataChannel = e.channel;
+    dataChannel.onmessage = msg => addMsg("Friend: " + msg.data);
+  };
+
+  const offer = JSON.parse(localStorage.getItem(room));
+  await peer.setRemoteDescription(offer);
+
+  const answer = await peer.createAnswer();
+  await peer.setLocalDescription(answer);
+
+  localStorage.setItem(room + "-answer", JSON.stringify(answer));
+}
+
+function sendMsg() {
+  const msg = document.getElementById("msg").value;
+  dataChannel.send(msg);
+  addMsg("You: " + msg);
+}
+
+function addMsg(msg) {
+  const div = document.getElementById("chatBox");
+  div.innerHTML += "<p>" + msg + "</p>";
+}
+
+function endCall() {
+  peer.close();
+  location.reload();
+}
+
+if (room) {
+  joinCall();
+}
+</script>
+
+</body>
+</html>
