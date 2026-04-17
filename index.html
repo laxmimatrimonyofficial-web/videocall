@@ -1,186 +1,160 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
-<title>Pro Video Call App</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pro Video Call</title>
 
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 
 <style>
-body {
-  margin: 0;
-  font-family: Arial;
-  background: #0f172a;
-  color: white;
-  text-align: center;
-}
+body { margin:0; background:#0f172a; color:#fff; font-family:sans-serif;}
+#videos { display:flex; flex-wrap:wrap; }
+video { width:50%; height:200px; object-fit:cover; }
 
-h2 {
-  margin: 10px;
-}
+.top { text-align:center; padding:10px;}
+input { padding:10px; }
+button { padding:10px; margin:5px; }
 
-.container {
-  padding: 10px;
-}
-
-video {
-  width: 48%;
-  border-radius: 12px;
-  margin: 5px;
-  background: black;
-}
-
-.controls {
-  margin: 10px;
-}
-
-button {
-  padding: 10px 15px;
-  margin: 5px;
-  border: none;
-  border-radius: 10px;
-  background: #22c55e;
-  color: white;
-  font-size: 14px;
-  cursor: pointer;
-}
-
-button.end {
-  background: #ef4444;
-}
-
-#chatBox {
-  height: 120px;
-  overflow-y: auto;
-  border: 1px solid #333;
-  margin: 10px;
-  padding: 5px;
-  border-radius: 8px;
-}
-
-input {
-  padding: 10px;
-  width: 65%;
-  border-radius: 8px;
-  border: none;
-}
+#chat { position:fixed; right:0; top:0; width:250px; height:100%; background:#111;}
+#messages { height:80%; overflow:auto; }
 </style>
 </head>
 
 <body>
 
-<h2>🌍 Instant Call (No Login)</h2>
-
-<div class="container">
-
-<button onclick="createRoom()">🔗 Create Call Link</button>
-<p id="link"></p>
-
-<br>
-
-<video id="localVideo" autoplay muted playsinline></video>
-<video id="remoteVideo" autoplay playsinline></video>
-
-<div class="controls">
-  <button onclick="startMedia()">🎥 Start Camera</button>
-  <button class="end" onclick="endCall()">❌ End</button>
+<div class="top">
+  <button onclick="createRoom()">Create Room</button>
+  <input id="roomInput" placeholder="Enter Room ID">
+  <button onclick="joinRoom()">Join</button>
 </div>
 
-<h3>💬 Chat</h3>
-<div id="chatBox"></div>
-<input id="msg" placeholder="Type message..." />
-<button onclick="sendMsg()">Send</button>
+<div id="videos"></div>
 
+<div class="top">
+  <button onclick="toggleMic()">🎤</button>
+  <button onclick="toggleCam()">📷</button>
+  <button onclick="shareScreen()">🖥️ Screen</button>
+</div>
+
+<div id="chat">
+  <div id="messages"></div>
+  <input id="msg" placeholder="Type message">
+  <button onclick="sendMsg()">Send</button>
 </div>
 
 <script>
-let peer;
-let call;
-let conn;
+// 🔗 ROOM
+let peer = new Peer();
+let connections = [];
 let localStream;
 
-const room = location.hash.substring(1);
+peer.on('open', id => {
+  console.log("Your ID:", id);
+});
 
-function createRoom() {
-  const id = Math.random().toString(36).substr(2, 6);
-  const url = location.href.split('#')[0] + "#" + id;
-  document.getElementById("link").innerText = url;
-}
-
-function initPeer(id) {
-  peer = new Peer(id);
-
-  peer.on('call', incomingCall => {
-    call = incomingCall;
-    call.answer(localStream);
-
-    call.on('stream', stream => {
-      document.getElementById("remoteVideo").srcObject = stream;
-    });
-  });
-
-  peer.on('connection', connection => {
-    conn = connection;
-
-    conn.on('data', data => {
-      addMsg("Friend: " + data);
-    });
-  });
-}
-
-async function startMedia() {
+// 🎥 START CAMERA
+async function startVideo(){
   localStream = await navigator.mediaDevices.getUserMedia({
-    video: { width: 1280, height: 720 },
-    audio: true
+    video:true,
+    audio:true
   });
 
-  document.getElementById("localVideo").srcObject = localStream;
-
-  if (room) {
-    startJoining();
-  } else {
-    initPeer();
-  }
+  let video = document.createElement("video");
+  video.srcObject = localStream;
+  video.autoplay = true;
+  video.muted = true;
+  document.getElementById("videos").appendChild(video);
 }
 
-function startJoining() {
-  initPeer();
+// 🔗 CREATE ROOM
+function createRoom(){
+  let roomId = Math.random().toString(36).substr(2,6);
+  location.hash = roomId;
+  alert("Share this link:\n" + location.href);
+}
 
-  peer.on('open', id => {
-    call = peer.call(room, localStream);
+// 🔗 JOIN ROOM
+function joinRoom(){
+  let roomId = document.getElementById("roomInput").value || location.hash.substring(1);
 
-    call.on('stream', stream => {
-      document.getElementById("remoteVideo").srcObject = stream;
-    });
+  if(!roomId) return alert("Enter Room ID");
 
-    conn = peer.connect(room);
+  startVideo();
 
-    conn.on('data', data => {
-      addMsg("Friend: " + data);
-    });
+  let conn = peer.connect(roomId);
+  setupConn(conn);
+
+  peer.on('connection', conn => {
+    setupConn(conn);
+  });
+
+  peer.on('call', call => {
+    call.answer(localStream);
+    call.on('stream', stream => addVideo(stream));
+  });
+
+  setTimeout(()=>{
+    let call = peer.call(roomId, localStream);
+    call.on('stream', stream => addVideo(stream));
+  },1000);
+}
+
+// 🎥 ADD VIDEO
+function addVideo(stream){
+  let video = document.createElement("video");
+  video.srcObject = stream;
+  video.autoplay = true;
+  document.getElementById("videos").appendChild(video);
+}
+
+// 💬 CHAT
+function setupConn(conn){
+  connections.push(conn);
+
+  conn.on('data', data => {
+    let msg = document.createElement("div");
+    msg.innerText = data;
+    document.getElementById("messages").appendChild(msg);
   });
 }
 
-function sendMsg() {
-  const msg = document.getElementById("msg").value;
-  if (conn) {
-    conn.send(msg);
-    addMsg("You: " + msg);
+function sendMsg(){
+  let text = document.getElementById("msg").value;
+  connections.forEach(c => c.send(text));
+}
+
+// 🎤 MIC
+function toggleMic(){
+  localStream.getAudioTracks()[0].enabled =
+    !localStream.getAudioTracks()[0].enabled;
+}
+
+// 📷 CAM
+function toggleCam(){
+  localStream.getVideoTracks()[0].enabled =
+    !localStream.getVideoTracks()[0].enabled;
+}
+
+// 🖥️ SCREEN SHARE
+async function shareScreen(){
+  let screen = await navigator.mediaDevices.getDisplayMedia({video:true});
+  addVideo(screen);
+}
+
+// 📱 PWA INSTALL
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  alert("Install App Available!");
+});
+
+// 🔄 AUTO JOIN FROM LINK
+window.onload = () => {
+  if(location.hash){
+    document.getElementById("roomInput").value = location.hash.substring(1);
   }
-}
-
-function addMsg(msg) {
-  const box = document.getElementById("chatBox");
-  box.innerHTML += "<p>" + msg + "</p>";
-  box.scrollTop = box.scrollHeight;
-}
-
-function endCall() {
-  if (call) call.close();
-  if (conn) conn.close();
-  location.reload();
-}
+};
 </script>
 
 </body>
